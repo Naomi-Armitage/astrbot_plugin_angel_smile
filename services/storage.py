@@ -3,19 +3,19 @@ import random
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from astrbot.api import logger
 
 from ..constants import SUPPORTED_IMAGE_SUFFIXES
 from ..models import MemeSaveResult, PluginPaths
-from ..utils import get_image_extension, safe_filename
+from ..utils import detect_image_suffix, safe_filename
 
 
 class MemeStorage:
     def __init__(self, paths: PluginPaths):
         self.paths = paths
-        self.stickers_data: Dict[str, str] = {}
+        self.stickers_data: dict[str, str] = {}
 
     def initialize(self) -> None:
         self.paths.data_dir.mkdir(parents=True, exist_ok=True)
@@ -33,11 +33,15 @@ class MemeStorage:
             if source_memes.exists():
                 for child in source_memes.iterdir():
                     if child.is_dir():
-                        shutil.copytree(child, self.paths.stickers_dir / child.name, dirs_exist_ok=True)
+                        shutil.copytree(
+                            child,
+                            self.paths.stickers_dir / child.name,
+                            dirs_exist_ok=True,
+                        )
 
         self.load_stickers_data()
 
-    def load_stickers_data(self) -> Dict[str, str]:
+    def load_stickers_data(self) -> dict[str, str]:
         try:
             if self.paths.stickers_data_file.exists():
                 raw_data = json.loads(
@@ -55,13 +59,13 @@ class MemeStorage:
             self.stickers_data = {}
         return self.stickers_data
 
-    def _normalize_stickers_data(self, raw_data: Any) -> Dict[str, str]:
+    def _normalize_stickers_data(self, raw_data: Any) -> dict[str, str]:
         if raw_data is None:
             return {}
         if not isinstance(raw_data, dict):
             raise TypeError("memes_data.json 顶层必须是对象")
 
-        normalized: Dict[str, str] = {}
+        normalized: dict[str, str] = {}
         for raw_key, raw_value in raw_data.items():
             if not isinstance(raw_key, str):
                 raise TypeError("memes_data.json 的分类名必须是字符串")
@@ -87,28 +91,30 @@ class MemeStorage:
             for path in sticker_dir.iterdir()
         )
 
-    def get_available_stickers_data(self) -> Dict[str, str]:
+    def get_available_stickers_data(self) -> dict[str, str]:
         return {
             category: description
             for category, description in self.stickers_data.items()
             if self.has_sticker_assets(category)
         }
 
-    def get_catalog_stickers_data(self) -> Dict[str, str]:
+    def get_catalog_stickers_data(self) -> dict[str, str]:
         return dict(self.stickers_data)
 
-    def get_catalog_description(self, category: str) -> Optional[str]:
+    def get_catalog_description(self, category: str) -> str | None:
         description = self.stickers_data.get(category)
         if description is None:
             return None
         return str(description).strip()
 
-    def get_random_sticker_path(self, category: str) -> Optional[str]:
+    def get_random_sticker_path(self, category: str) -> str | None:
         sticker_dir = self.paths.stickers_dir / category
         if not sticker_dir.exists() or not sticker_dir.is_dir():
             return None
         image_files = [
-            path for path in sticker_dir.iterdir() if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
+            path
+            for path in sticker_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
         ]
         if not image_files:
             return None
@@ -123,40 +129,29 @@ class MemeStorage:
             if path.is_file() and path.suffix.lower() in SUPPORTED_IMAGE_SUFFIXES
         ]
 
-    def _detect_real_extension(self, file_path: Path) -> str:
-        """检测图片真实格式并返回正确的扩展名（带点）
-        
-        上游会把所有图片后缀改成.jpg，这里通过文件头检测真实格式。
-        """
-        try:
-            # 读取前32字节（足够检测所有格式）
-            with open(file_path, 'rb') as f:
-                header = f.read(32)
-            
-            ext = get_image_extension(header, default='jpg')
-            return f'.{ext}'
-        except Exception:
-            # 检测失败时使用原文件后缀
-            return file_path.suffix.lower() or '.jpg'
-
     def save_meme(
         self,
         source_file: Path,
         category: str,
         description: str,
         reason: str,
-        save_name: Optional[str] = None,
+        save_name: str | None = None,
         overwrite_description: bool = False,
     ) -> MemeSaveResult:
         target_dir = self.paths.stickers_dir / category
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        # 检测图片真实格式（修复上游改后缀名的bug）
-        real_ext = self._detect_real_extension(source_file)
-        
-        target_file = target_dir / safe_filename(save_name, real_ext, force_extension=True)
+        detected_suffix = detect_image_suffix(source_file)
+        target_file = target_dir / safe_filename(
+            save_name,
+            detected_suffix,
+            force_suffix=True,
+        )
         if target_file.exists():
-            target_file = target_dir / f"{target_file.stem}_{int(time.time())}{target_file.suffix}"
+            target_file = (
+                target_dir
+                / f"{target_file.stem}_{int(time.time())}{target_file.suffix}"
+            )
 
         shutil.copy2(source_file, target_file)
         if category not in self.stickers_data:

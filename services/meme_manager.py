@@ -1,6 +1,5 @@
 from asyncio import Lock
 from pathlib import Path
-from typing import Optional
 
 from astrbot.api import logger
 from astrbot.core.utils.io import download_image_by_url
@@ -8,6 +7,7 @@ from astrbot.core.utils.io import download_image_by_url
 from ..constants import SUPPORTED_IMAGE_SUFFIXES
 from ..models import MemeToolResult
 from ..utils import (
+    detect_image_suffix,
     get_allowed_image_roots,
     is_path_within_roots,
     normalize_category_name,
@@ -28,11 +28,11 @@ class MemeManager:
     def initialize(self) -> None:
         self.dedup.initialize()
 
-    async def _resolve_image_ref(self, image_ref: str) -> tuple[Optional[Path], bool]:
-        """Resolve image reference into a local file path.
+    async def _resolve_image_ref(self, image_ref: str) -> tuple[Path | None, bool]:
+        """Resolve an image reference into a local file path.
 
         Returns:
-            (path, downloaded_from_url)
+            tuple[Optional[Path], bool]: (resolved_path, downloaded_from_url)
         """
         text = (image_ref or "").strip()
         if not text:
@@ -43,12 +43,11 @@ class MemeManager:
                 downloaded = await download_image_by_url(text)
                 return resolve_user_path(downloaded), True
             except Exception as exc:  # noqa: BLE001
-                logger.warning("AngelSmile: 下载图片失败 %s: %s", text, exc)
+                logger.warning("AngelSmile: failed to download image %s: %s", text, exc)
                 return None, True
 
         if text.startswith("file:///"):
             local_path = text[8:]
-            # Windows 兼容: file:///d:/path -> /d:/path -> d:/path
             if len(local_path) > 2 and local_path[0] == "/" and local_path[2] == ":":
                 local_path = local_path[1:]
             return resolve_user_path(local_path), False
@@ -59,33 +58,37 @@ class MemeManager:
         self,
         image_path: str,
         category: str,
-        description: Optional[str] = None,
-        save_name: Optional[str] = None,
+        description: str | None = None,
+        save_name: str | None = None,
     ) -> str:
         raw_path, from_url = await self._resolve_image_ref(image_path)
         if raw_path is None:
-            return f"无法解析图片引用: {image_path}"
+            return f"Unable to resolve image reference: {image_path}"
 
         if not raw_path.exists() or not raw_path.is_file():
-            return f"图片不存在或不是文件: {raw_path}"
+            return f"Image file does not exist: {raw_path}"
 
         if not is_path_within_roots(raw_path, self.allowed_image_roots):
-            return "图片路径不在允许的目录范围内。"
+            return "Image path is outside the allowed directories."
 
-        suffix = raw_path.suffix.lower()
+        try:
+            suffix = detect_image_suffix(raw_path)
+        except ValueError:
+            return f"Unsupported or invalid image file: {raw_path}"
+
         if suffix not in SUPPORTED_IMAGE_SUFFIXES:
-            return f"暂不支持的图片格式: {suffix or '无扩展名'}"
+            return f"Unsupported image format: {suffix or 'unknown'}"
 
         if not category.strip():
-            return "缺少 category。请先根据分类目录选择一个分类，再调用图片入库工具保存。"
+            return "Missing category for meme import."
 
         final_category = normalize_category_name(category)
         final_description = str(
             description
             or self.storage.get_catalog_description(final_category)
-            or "手动指定分类导入的表情包"
+            or "Imported by manual category selection"
         ).strip()
-        reason = "手动指定分类"
+        reason = "Manual category selection"
         overwrite_description = bool(description)
 
         async with self.write_lock:
@@ -96,8 +99,8 @@ class MemeManager:
                     saved=False,
                     category=final_category,
                     description=final_description,
-                    message="这个表情包已经偷过了",
-                    reason="这个表情包已经偷过了",
+                    message="Duplicate meme detected",
+                    reason="Duplicate meme detected",
                     duplicate=True,
                     duplicate_type="similar",
                     matched_file=str(duplicate.matched_file),
@@ -115,6 +118,6 @@ class MemeManager:
             self.dedup.register_file(result.saved_file)
 
         if from_url:
-            logger.info("AngelSmile: 已从 URL 下载并保存表情: %s", image_path)
+            logger.info("AngelSmile: saved meme imported from URL %s", image_path)
 
         return result.to_tool_result().to_message()

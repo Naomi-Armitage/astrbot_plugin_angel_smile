@@ -1,15 +1,25 @@
 import os
 import re
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Optional
+
+from PIL import Image, UnidentifiedImageError
 
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from .constants import DEFAULT_CATEGORY
 
+IMAGE_FORMAT_SUFFIXES = {
+    "JPEG": ".jpg",
+    "PNG": ".png",
+    "GIF": ".gif",
+    "WEBP": ".webp",
+    "BMP": ".bmp",
+}
 
-def normalize_category_name(category: Optional[str]) -> str:
+
+def normalize_category_name(category: str | None) -> str:
     text = (category or "").strip().lower()
     if not text:
         return DEFAULT_CATEGORY
@@ -19,27 +29,32 @@ def normalize_category_name(category: Optional[str]) -> str:
     return text or DEFAULT_CATEGORY
 
 
-def resolve_user_path(raw_path: str) -> Path:
-    return Path(os.path.expandvars(os.path.expanduser(raw_path))).resolve()
+def safe_filename(
+    name: str | None,
+    suffix: str,
+    *,
+    force_suffix: bool = False,
+    force_extension: bool | None = None,
+) -> str:
+    normalized_suffix = suffix.lower().strip()
+    if normalized_suffix and not normalized_suffix.startswith("."):
+        normalized_suffix = f".{normalized_suffix}"
+    if not normalized_suffix:
+        normalized_suffix = ".jpg"
 
-
-def get_allowed_image_roots(extra_roots: Optional[Iterable[Path]] = None) -> tuple[Path, ...]:
-    roots = {
-        Path(get_astrbot_data_path()).resolve(),
-        Path.cwd().resolve(),
-    }
-    if extra_roots:
-        roots.update(path.resolve() for path in extra_roots)
-    return tuple(sorted(roots))
-
-
-def is_path_within_roots(target_path: Path, roots: Iterable[Path]) -> bool:
-    resolved_target = target_path.resolve()
-    for root in roots:
-        resolved_root = root.resolve()
-        if resolved_target == resolved_root or resolved_root in resolved_target.parents:
-            return True
-    return False
+    force_suffix = force_suffix or bool(force_extension)
+    base = (name or "").strip()
+    if base:
+        base = Path(base).name
+        base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", base)
+        stem = Path(base).stem.strip() or f"meme_{int(time.time())}"
+        ext = (
+            normalized_suffix
+            if force_suffix
+            else (Path(base).suffix or normalized_suffix)
+        )
+        return f"{stem}{ext.lower()}"
+    return f"meme_{int(time.time())}{normalized_suffix}"
 
 
 def _is_png(buf: bytes) -> bool:
@@ -111,19 +126,50 @@ def get_image_extension(data: bytes, default: str = "jpg") -> str:
     return ext if ext else default
 
 
-def safe_filename(save_name: Optional[str], suffix: str, force_extension: bool = False) -> str:
-    base = (save_name or "").strip()
-    cleaned_suffix = suffix.lower().strip()
-    if cleaned_suffix and not cleaned_suffix.startswith("."):
-        cleaned_suffix = f".{cleaned_suffix}"
-    if not cleaned_suffix:
-        cleaned_suffix = ".jpg"
+def detect_image_suffix(path: Path) -> str:
+    try:
+        with path.open("rb") as file:
+            header = file.read(32)
+    except OSError as exc:
+        raise ValueError(f"Invalid image file: {path}") from exc
 
-    if base:
-        base = Path(base).name
-        base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", base)
-        stem = Path(base).stem.strip() or f"meme_{int(time.time())}"
-        existing_ext = Path(base).suffix.lower()
-        ext = cleaned_suffix if force_extension or not existing_ext else existing_ext
-        return f"{stem}{ext}"
-    return f"meme_{int(time.time())}{cleaned_suffix}"
+    try:
+        with Image.open(path) as image:
+            image_format = (image.format or "").upper()
+    except (FileNotFoundError, OSError, UnidentifiedImageError):
+        image_format = ""
+    else:
+        detected_suffix = IMAGE_FORMAT_SUFFIXES.get(image_format)
+        if detected_suffix:
+            return detected_suffix
+
+    detected_extension = get_image_extension(header, default="")
+    if detected_extension:
+        return f".{detected_extension.lower()}"
+
+    raise ValueError(f"Unsupported image format: {path}")
+
+
+def resolve_user_path(raw_path: str) -> Path:
+    return Path(os.path.expandvars(os.path.expanduser(raw_path))).resolve()
+
+
+def get_allowed_image_roots(
+    extra_roots: Iterable[Path] | None = None,
+) -> tuple[Path, ...]:
+    roots = {
+        Path(get_astrbot_data_path()).resolve(),
+        Path.cwd().resolve(),
+    }
+    if extra_roots:
+        roots.update(path.resolve() for path in extra_roots)
+    return tuple(sorted(roots))
+
+
+def is_path_within_roots(target_path: Path, roots: Iterable[Path]) -> bool:
+    resolved_target = target_path.resolve()
+    for root in roots:
+        resolved_root = root.resolve()
+        if resolved_target == resolved_root or resolved_root in resolved_target.parents:
+            return True
+    return False

@@ -46,7 +46,6 @@ def install_fake_astrbot() -> None:
 
     components_module.Plain = Plain
     components_module.Image = Image
-
     path_module.get_astrbot_data_path = get_astrbot_data_path
 
     sys.modules["astrbot"] = astrbot_module

@@ -3,11 +3,12 @@ import unittest
 from pathlib import Path
 
 from astrbot_plugin_angel_smile.tests._bootstrap import install_fake_astrbot
-
+from PIL import Image
 
 install_fake_astrbot()
 
 from astrbot_plugin_angel_smile.utils import (  # noqa: E402
+    detect_image_suffix,
     is_path_within_roots,
     normalize_category_name,
     safe_filename,
@@ -24,6 +25,24 @@ class UtilsTestCase(unittest.TestCase):
         self.assertTrue(result.endswith(".png"))
         self.assertNotIn("<", result)
         self.assertNotIn(">", result)
+
+    def test_safe_filename_can_force_detected_suffix(self):
+        result = safe_filename("sticker.png", ".webp", force_suffix=True)
+        self.assertEqual(result, "sticker.webp")
+
+    def test_safe_filename_keeps_legacy_force_extension_alias(self):
+        result = safe_filename("sticker.png", ".webp", force_extension=True)
+        self.assertEqual(result, "sticker.webp")
+
+    def test_detect_image_suffix_uses_real_image_format(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fake_jpg = Path(temp_dir) / "sticker.jpg"
+            Image.new("RGBA", (16, 16), color=(255, 0, 0, 0)).save(
+                fake_jpg,
+                format="WEBP",
+            )
+
+            self.assertEqual(detect_image_suffix(fake_jpg), ".webp")
 
     def test_path_within_roots(self):
         with tempfile.TemporaryDirectory() as temp_dir:

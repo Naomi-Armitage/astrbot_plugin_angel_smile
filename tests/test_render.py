@@ -11,7 +11,7 @@ from astrbot_plugin_angel_smile.services.render import StickerRenderer  # noqa: 
 
 class _FakeStorage:
     def __init__(self):
-        self.available = {"happy": "开心"}
+        self.available = {"happy": "happy sticker"}
         self.path = "/tmp/happy.png"
 
     def get_available_stickers_data(self):
@@ -26,7 +26,7 @@ class _FakeStorage:
 class RenderTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_non_sticker_colon_text_keeps_single_plain_component(self):
         renderer = StickerRenderer(storage=_FakeStorage())
-        text = "下次执行时间：2026-03-20 12 :00: 00"
+        text = "Next run time: 2026-03-20 12:00:00"
 
         components = await renderer.render_text(text)
 
@@ -36,17 +36,17 @@ class RenderTestCase(unittest.IsolatedAsyncioTestCase):
 
     async def test_available_sticker_replaced_by_image(self):
         renderer = StickerRenderer(storage=_FakeStorage())
-        text = "你好 :happy: 世界"
+        text = "hello :happy: world"
 
         components = await renderer.render_text(text)
 
         self.assertEqual(len(components), 3)
         self.assertIsInstance(components[0], Plain)
-        self.assertEqual(components[0].text, "你好 ")
+        self.assertEqual(components[0].text, "hello ")
         self.assertIsInstance(components[1], Image)
         self.assertEqual(components[1].path, "/tmp/happy.png")
         self.assertIsInstance(components[2], Plain)
-        self.assertEqual(components[2].text, " 世界")
+        self.assertEqual(components[2].text, " world")
 
 
 if __name__ == "__main__":

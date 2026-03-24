@@ -1,5 +1,4 @@
 import re
-from typing import List
 
 from astrbot.api import logger
 from astrbot.core.message.components import Image, Plain
@@ -12,7 +11,8 @@ class StickerRenderer:
     def build_sticker_list(self) -> str:
         available_stickers = self.storage.get_available_stickers_data()
         return "\n".join(
-            f"- :{name}: {description}" for name, description in available_stickers.items()
+            f"- :{name}: {description}"
+            for name, description in available_stickers.items()
         )
 
     def build_prompt_catalog(self) -> str:
@@ -27,34 +27,38 @@ class StickerRenderer:
         sections = []
         if available:
             sections.append(
-                "可用表情：\n" + "\n".join(
-                    f"- :{name}: {description}" for name, description in available.items()
+                "可用表情：\n"
+                + "\n".join(
+                    f"- :{name}: {description}"
+                    for name, description in available.items()
                 )
             )
         if unavailable:
             sections.append(
-                "暂不可用的表情（当前分类下暂无素材）：\n" + "\n".join(
-                    f"- {name}: {description}" for name, description in unavailable.items()
+                "暂不可用的表情（当前分类下暂无素材）：\n"
+                + "\n".join(
+                    f"- {name}: {description}"
+                    for name, description in unavailable.items()
                 )
             )
         return "\n\n".join(sections)
 
-    async def render_text(self, text: str) -> List:
+    async def render_text(self, text: str) -> list:
         components = []
         try:
             available_stickers = self.storage.get_available_stickers_data()
             if not available_stickers:
                 return [Plain(text)]
 
-            # Only match currently available sticker names to avoid splitting
-            # plain text segments like time strings (e.g. ":00:").
-            names = sorted((re.escape(name) for name in available_stickers), key=len, reverse=True)
+            names = sorted(
+                (re.escape(name) for name in available_stickers), key=len, reverse=True
+            )
             pattern = re.compile(r":(" + "|".join(names) + r"):")
             last_end = 0
 
             for match in pattern.finditer(text):
                 if match.start() > last_end:
-                    components.append(Plain(text[last_end:match.start()]))
+                    components.append(Plain(text[last_end : match.start()]))
 
                 sticker_name = match.group(1)
                 if sticker_name in available_stickers:

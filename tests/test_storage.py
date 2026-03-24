@@ -4,10 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from PIL import Image
-
 from astrbot_plugin_angel_smile.tests._bootstrap import install_fake_astrbot
-
+from PIL import Image
 
 install_fake_astrbot()
 
@@ -52,6 +50,25 @@ class StorageTestCase(unittest.TestCase):
 
         available = self.storage.get_available_stickers_data()
         self.assertEqual(available, {"happy": "desc"})
+
+    def test_save_meme_preserves_detected_webp_suffix(self):
+        source_file = self.paths.plugin_dir / "downloaded.jpg"
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGBA", (32, 32), color=(255, 0, 0, 0)).save(
+            source_file,
+            format="WEBP",
+        )
+
+        result = self.storage.save_meme(
+            source_file=source_file,
+            category="happy",
+            description="desc",
+            reason="test",
+            save_name="sticker.jpg",
+        )
+
+        self.assertEqual(result.saved_file.suffix.lower(), ".webp")
+        self.assertTrue(result.saved_file.exists())
 
 
 if __name__ == "__main__":
